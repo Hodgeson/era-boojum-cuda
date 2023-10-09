@@ -18,7 +18,7 @@ macro_rules! cuda_path {
 #[macro_export]
 macro_rules! cuda_path {
     () => {
-        unimplemented!()
+        ""
     };
 }
 
@@ -49,6 +49,6 @@ macro_rules! cuda_lib_path {
 #[macro_export]
 macro_rules! cuda_lib_path {
     () => {
-        unimplemented!()
+        ""
     };
 }
