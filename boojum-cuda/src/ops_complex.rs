@@ -1280,7 +1280,6 @@ pub fn deep_quotient_except_public_inputs(
     );
     assert_eq!(denom_at_z.slice().len(), count);
     assert_eq!(denom_at_z_omega.slice().len(), count);
-    assert_eq!(denom_at_zero.slice().len(), count);
     assert_eq!(quotient.slice().len(), count);
     let mut num_terms_at_z = 0;
     num_terms_at_z +=
@@ -1309,6 +1308,11 @@ pub fn deep_quotient_except_public_inputs(
     let num_permutation_cols = permutation_cols.cols() as u32;
     let num_partial_products = partial_products.cols() as u32;
     let num_multiplicity_cols = multiplicity_cols.cols() as u32;
+    if num_multiplicity_cols > 0 {
+        assert_eq!(denom_at_zero.slice().len(), count)
+    } else {
+        assert_eq!(denom_at_zero.slice().len(), 0)
+    }
     let num_lookup_a_polys = lookup_a_polys.cols() as u32;
     let num_lookup_b_polys = lookup_b_polys.cols() as u32;
     let num_table_cols = table_cols.cols() as u32;
@@ -1690,7 +1694,7 @@ mod tests {
             .into_iter()
             .enumerate()
             .map(|(i, x)| x * generator.pow_u64(SHIFT as u64 * i as u64))
-            .zip(h_dst.into_iter())
+            .zip(h_dst)
             .for_each(assert_equal);
         context.destroy().unwrap();
     }
@@ -1751,9 +1755,8 @@ mod tests {
             .into_iter()
             .chunks(ROWS)
             .into_iter()
-            .zip(h_dst.into_iter().chunks(ROWS).into_iter())
+            .zip(h_dst.chunks(ROWS))
             .for_each(|(s, d)| {
-                let d = d.collect_vec();
                 s.enumerate()
                     .map(|(i, x)| (x, d[i.reverse_bits() >> (usize::BITS - LOG_ROWS as u32)]))
                     .for_each(assert_equal);
@@ -1813,7 +1816,7 @@ mod tests {
     }
 
     fn test_batch_inv_ef(in_place: bool) {
-        type VEF = VectorizedExtensionField;
+        type Vef = VectorizedExtensionField;
         const LOG_N: usize = 16;
         const N: usize = 1 << LOG_N;
         let h_src_bf = Uniform::new(0, GoldilocksField::ORDER)
@@ -1826,16 +1829,16 @@ mod tests {
         if in_place {
             let mut d_values_bf = DeviceAllocation::alloc(2 * N).unwrap();
             memory_copy_async(&mut d_values_bf, &h_src_bf, &stream).unwrap();
-            let mut d_values_ef = unsafe { d_values_bf.transmute_mut::<VEF>() };
-            super::batch_inv_in_place::<VEF>(&mut d_values_ef, &stream).unwrap();
+            let d_values_ef = unsafe { d_values_bf.transmute_mut::<Vef>() };
+            super::batch_inv_in_place::<Vef>(d_values_ef, &stream).unwrap();
             memory_copy_async(&mut h_dst_bf, &d_values_bf, &stream).unwrap();
         } else {
             let mut d_src_bf = DeviceAllocation::alloc(2 * N).unwrap();
             let mut d_dst_bf = DeviceAllocation::alloc(2 * N).unwrap();
             memory_copy_async(&mut d_src_bf, &h_src_bf, &stream).unwrap();
-            let d_src_ef = unsafe { d_src_bf.transmute::<VEF>() };
-            let mut d_dst_ef = unsafe { d_dst_bf.transmute_mut::<VEF>() };
-            super::batch_inv::<VEF>(&d_src_ef, &mut d_dst_ef, &stream).unwrap();
+            let d_src_ef = unsafe { d_src_bf.transmute::<Vef>() };
+            let d_dst_ef = unsafe { d_dst_bf.transmute_mut::<Vef>() };
+            super::batch_inv::<Vef>(d_src_ef, d_dst_ef, &stream).unwrap();
             memory_copy_async(&mut h_dst_bf, &d_dst_bf, &stream).unwrap();
         }
         stream.synchronize().unwrap();
