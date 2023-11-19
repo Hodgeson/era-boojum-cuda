@@ -1,5 +1,5 @@
-use std::ffi::c_void;
 use std::mem::size_of;
+use std::os::raw::c_void;
 
 use boojum::cs::implementations::utils::domain_generator_for_size;
 use boojum::fft::{bitreverse_enumeration_inplace, distribute_powers};

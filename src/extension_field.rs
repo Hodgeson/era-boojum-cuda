@@ -1,6 +1,7 @@
 use boojum::field::goldilocks::{GoldilocksExt2, GoldilocksField};
+use cudart::cuda_kernel_arguments_and_function;
+use cudart::execution::{CudaLaunchConfigBuilder, KernelFunction};
 
-use cudart::execution::{KernelFourArgs, KernelLaunch};
 use cudart::result::CudaResult;
 use cudart::stream::CudaStream;
 
@@ -16,35 +17,39 @@ pub type ExtensionField = boojum::field::ExtensionField<GoldilocksField, 2, Gold
 #[derive(Clone, Copy, Debug)]
 pub struct VectorizedExtensionField([GoldilocksField; 2]);
 
-extern "C" {
-    fn vectorized_to_tuples_kernel(
+cuda_kernel_arguments_and_function!(
+    pub VectorizedToTuplesKernel,
+    vectorized_to_tuples_kernel(
         src: PtrAndStride<VectorizedExtensionFieldDeviceType>,
         dst: MutPtrAndStride<ExtensionFieldDeviceType>,
         rows: u32,
         cols: u32,
-    );
+    )
+);
 
-    fn tuples_to_vectorized_kernel(
+cuda_kernel_arguments_and_function!(
+    pub TuplesToVectorizedKernel,
+    tuples_to_vectorized_kernel(
         src: PtrAndStride<ExtensionFieldDeviceType>,
         dst: MutPtrAndStride<VectorizedExtensionFieldDeviceType>,
         rows: u32,
         cols: u32,
-    );
-}
+    )
+);
 
 pub trait ConvertTarget: DeviceRepr {
     type Target: DeviceRepr;
 }
 
-type ConvertKernel<T> = KernelFourArgs<
-    PtrAndStride<<T as DeviceRepr>::Type>,
-    MutPtrAndStride<<<T as ConvertTarget>::Target as DeviceRepr>::Type>,
-    u32,
-    u32,
->;
-
 pub trait Convert: ConvertTarget {
-    fn get_kernel() -> ConvertKernel<Self>;
+    type ConvertKernelFunction: KernelFunction;
+
+    fn get_argument(
+        src: PtrAndStride<Self::Type>,
+        dst: MutPtrAndStride<<Self::Target as DeviceRepr>::Type>,
+        rows: u32,
+        cols: u32,
+    ) -> <Self::ConvertKernelFunction as KernelFunction>::Arguments;
 
     fn launch_kernel<S, D>(src: &S, dst: &mut D, stream: &CudaStream) -> CudaResult<()>
     where
@@ -61,9 +66,13 @@ pub trait Convert: ConvertTarget {
         let dst = dst.as_mut_ptr_and_stride();
         let (grid_dim, block_dim) =
             get_grid_block_dims_for_threads_count(WARP_SIZE * 4, rows * cols);
-        let args = (&src, &dst, &rows, &cols);
-        let kernel = Self::get_kernel();
-        unsafe { kernel.launch(grid_dim, block_dim, args, 0, stream) }
+        let config = CudaLaunchConfigBuilder::new()
+            .grid_dim(grid_dim)
+            .block_dim(block_dim)
+            .stream(stream)
+            .build();
+        let args = Self::get_argument(src, dst, rows, cols);
+        Self::ConvertKernelFunction::launch(config, args)
     }
 }
 
@@ -72,8 +81,20 @@ impl ConvertTarget for ExtensionField {
 }
 
 impl Convert for ExtensionField {
-    fn get_kernel() -> ConvertKernel<Self> {
-        tuples_to_vectorized_kernel
+    type ConvertKernelFunction = TuplesToVectorizedKernelFunction;
+
+    fn get_argument(
+        src: PtrAndStride<Self::Type>,
+        dst: MutPtrAndStride<<Self::Target as DeviceRepr>::Type>,
+        rows: u32,
+        cols: u32,
+    ) -> <Self::ConvertKernelFunction as KernelFunction>::Arguments {
+        TuplesToVectorizedKernelArguments {
+            src,
+            dst,
+            rows,
+            cols,
+        }
     }
 }
 
@@ -82,8 +103,20 @@ impl ConvertTarget for VectorizedExtensionField {
 }
 
 impl Convert for VectorizedExtensionField {
-    fn get_kernel() -> ConvertKernel<Self> {
-        vectorized_to_tuples_kernel
+    type ConvertKernelFunction = VectorizedToTuplesKernelFunction;
+
+    fn get_argument(
+        src: PtrAndStride<Self::Type>,
+        dst: MutPtrAndStride<<Self::Target as DeviceRepr>::Type>,
+        rows: u32,
+        cols: u32,
+    ) -> <Self::ConvertKernelFunction as KernelFunction>::Arguments {
+        VectorizedToTuplesKernelArguments {
+            src,
+            dst,
+            rows,
+            cols,
+        }
     }
 }
 

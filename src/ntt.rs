@@ -1,122 +1,71 @@
-use std::os::raw::c_void;
-
 use boojum::field::goldilocks::GoldilocksField;
+use cudart::{cuda_kernel_arguments, cuda_kernel_function};
 
 use cudart::error::get_last_error;
-use cudart::kernel_args;
+use cudart::execution::{CudaLaunchConfigBuilder, KernelFunction};
 use cudart::result::{CudaResult, CudaResultWrap};
 use cudart::slice::DeviceSlice;
 use cudart::stream::CudaStream;
-use cudart_sys::cudaLaunchKernel;
 
 use crate::context::OMEGA_LOG_ORDER;
 
-extern "C" {
-    fn n2b_1_stage(
-        inputs_matrix: *const GoldilocksField,
-        outputs_matrix: *mut GoldilocksField,
-        stride_between_input_arrays: u32,
-        stride_between_output_arrays: u32,
-        start_stage: u32,
-        stages_this_launch: u32,
-        log_n: u32,
-        inverse: bool,
-        blocks_per_ntt: u32,
-        log_extension_degree: u32,
-        coset_index: u32,
-    );
-    fn n2b_final_7_or_8_stages(
-        inputs_matrix: *const GoldilocksField,
-        outputs_matrix: *mut GoldilocksField,
-        stride_between_input_arrays: u32,
-        stride_between_output_arrays: u32,
-        start_stage: u32,
-        stages_this_launch: u32,
-        log_n: u32,
-        inverse: bool,
-        blocks_per_ntt: u32,
-        log_extension_degree: u32,
-        coset_index: u32,
-    );
-    fn n2b_final_9_to_12_stages(
-        inputs_matrix: *const GoldilocksField,
-        outputs_matrix: *mut GoldilocksField,
-        stride_between_input_arrays: u32,
-        stride_between_output_arrays: u32,
-        start_stage: u32,
-        stages_this_launch: u32,
-        log_n: u32,
-        inverse: bool,
-        blocks_per_ntt: u32,
-        log_extension_degree: u32,
-        coset_index: u32,
-    );
-    fn n2b_nonfinal_7_or_8_stages(
-        inputs_matrix: *const GoldilocksField,
-        outputs_matrix: *mut GoldilocksField,
-        stride_between_input_arrays: u32,
-        stride_between_output_arrays: u32,
-        start_stage: u32,
-        stages_this_launch: u32,
-        log_n: u32,
-        inverse: bool,
-        blocks_per_ntt: u32,
-        log_extension_degree: u32,
-        coset_index: u32,
-    );
-    fn b2n_1_stage(
-        inputs_matrix: *const GoldilocksField,
-        outputs_matrix: *mut GoldilocksField,
-        stride_between_input_arrays: u32,
-        stride_between_output_arrays: u32,
-        start_stage: u32,
-        stages_this_launch: u32,
-        log_n: u32,
-        inverse: bool,
-        blocks_per_ntt: u32,
-        log_extension_degree: u32,
-        coset_index: u32,
-    );
-    fn b2n_initial_7_or_8_stages(
-        inputs_matrix: *const GoldilocksField,
-        outputs_matrix: *mut GoldilocksField,
-        stride_between_input_arrays: u32,
-        stride_between_output_arrays: u32,
-        start_stage: u32,
-        stages_this_launch: u32,
-        log_n: u32,
-        inverse: bool,
-        blocks_per_ntt: u32,
-        log_extension_degree: u32,
-        coset_index: u32,
-    );
-    fn b2n_initial_9_to_12_stages(
-        inputs_matrix: *const GoldilocksField,
-        outputs_matrix: *mut GoldilocksField,
-        stride_between_input_arrays: u32,
-        stride_between_output_arrays: u32,
-        start_stage: u32,
-        stages_this_launch: u32,
-        log_n: u32,
-        inverse: bool,
-        blocks_per_ntt: u32,
-        log_extension_degree: u32,
-        coset_index: u32,
-    );
-    fn b2n_noninitial_7_or_8_stages(
-        inputs_matrix: *const GoldilocksField,
-        outputs_matrix: *mut GoldilocksField,
-        stride_between_input_arrays: u32,
-        stride_between_output_arrays: u32,
-        start_stage: u32,
-        stages_this_launch: u32,
-        log_n: u32,
-        inverse: bool,
-        blocks_per_ntt: u32,
-        log_extension_degree: u32,
-        coset_index: u32,
-    );
+cuda_kernel_arguments!(
+    KernelArguments,
+    inputs_matrix: *const GoldilocksField,
+    outputs_matrix: *mut GoldilocksField,
+    stride_between_input_arrays: u32,
+    stride_between_output_arrays: u32,
+    start_stage: u32,
+    stages_this_launch: u32,
+    log_n: u32,
+    inverse: bool,
+    blocks_per_ntt: u32,
+    log_extension_degree: u32,
+    coset_index: u32,
+);
+
+macro_rules! kernel_function {
+    ($name:ident, $kernel_name:ident) => {
+        cuda_kernel_function!(
+            $name,
+            KernelArguments,
+            $kernel_name(
+                inputs_matrix: *const GoldilocksField,
+                outputs_matrix: *mut GoldilocksField,
+                stride_between_input_arrays: u32,
+                stride_between_output_arrays: u32,
+                start_stage: u32,
+                stages_this_launch: u32,
+                log_n: u32,
+                inverse: bool,
+                blocks_per_ntt: u32,
+                log_extension_degree: u32,
+                coset_index: u32,
+            )
+        );
+    };
 }
+
+kernel_function!(N2B1StageKernelFunction, n2b_1_stage);
+kernel_function!(N2BFinal7Or8StagesKernelFunction, n2b_final_7_or_8_stages);
+kernel_function!(N2BFinal9To12StagesKernelFunction, n2b_final_9_to_12_stages);
+kernel_function!(
+    N2BNonfinal7Or8StagesKernelFunction,
+    n2b_nonfinal_7_or_8_stages
+);
+kernel_function!(B2N1StageKernelFunction, b2n_1_stage);
+kernel_function!(
+    B2NInitial7Or8StagesKernelFunction,
+    b2n_initial_7_or_8_stages
+);
+kernel_function!(
+    B2NInitial9To12StagesKernelFunction,
+    b2n_initial_9_to_12_stages
+);
+kernel_function!(
+    B2NNoninitial7Or8StagesKernelFunction,
+    b2n_noninitial_7_or_8_stages
+);
 
 #[allow(non_camel_case_types)]
 #[allow(clippy::upper_case_acronyms)]
@@ -231,51 +180,6 @@ const PLANS: [[[KERN; 3]; 9]; 2] = [
     ],
 ];
 
-#[allow(clippy::too_many_arguments)]
-fn launch(
-    nblocks: u32,
-    nthreads: u32,
-    smem_bytes: usize,
-    stream: &CudaStream,
-    kernel: *const c_void,
-    inputs_matrix: *const GoldilocksField,
-    outputs_matrix: *mut GoldilocksField,
-    stride_between_input_arrays: u32,
-    stride_between_output_arrays: u32,
-    start_stage: u32,
-    stages_this_launch: u32,
-    log_n: u32,
-    inverse: bool,
-    blocks_per_ntt: u32,
-    log_extension_degree: u32,
-    coset_index: u32,
-) -> CudaResult<()> {
-    unsafe {
-        let mut args = kernel_args!(
-            &inputs_matrix,
-            &outputs_matrix,
-            &stride_between_input_arrays,
-            &stride_between_output_arrays,
-            &start_stage,
-            &stages_this_launch,
-            &log_n,
-            &inverse,
-            &blocks_per_ntt,
-            &log_extension_degree,
-            &coset_index
-        );
-        cudaLaunchKernel(
-            kernel,
-            nblocks.into(),
-            nthreads.into(),
-            args.as_mut_ptr(),
-            smem_bytes,
-            stream.into(),
-        )
-        .wrap()
-    }
-}
-
 // Carries out LDE for all cosets in a single launch, which improves saturation for smaller sizes.
 // results must contain 2^log_extension_degree DeviceAllocationSlices, to hold all the output cosets.
 #[allow(clippy::too_many_arguments)]
@@ -309,11 +213,11 @@ pub fn batch_ntt_internal(
         let n: u32 = 1 << log_n;
         let blocks_per_ntt: u32 = (n + 2 * threads - 1) / (2 * threads);
         let blocks = blocks_per_ntt * num_ntts;
-        let kernel = if bitrev_inputs {
-            b2n_1_stage
-        } else {
-            n2b_1_stage
-        };
+        let config = CudaLaunchConfigBuilder::new()
+            .grid_dim(blocks.into())
+            .block_dim(threads.into())
+            .stream(stream)
+            .build();
         for stage in 0..log_n {
             let inputs_ptr = if stage == 0 {
                 inputs_ptr_in
@@ -325,12 +229,7 @@ pub fn batch_ntt_internal(
             } else {
                 stride_between_output_arrays
             };
-            launch(
-                blocks,
-                threads,
-                0,
-                stream,
-                kernel as *const c_void,
+            let args = KernelArguments::new(
                 inputs_ptr,
                 outputs_ptr,
                 stride_between_input_arrays,
@@ -342,7 +241,12 @@ pub fn batch_ntt_internal(
                 blocks_per_ntt,
                 log_extension_degree,
                 coset_index,
-            )?;
+            );
+            if bitrev_inputs {
+                B2N1StageKernelFunction::launch(config, args)
+            } else {
+                N2B1StageKernelFunction::launch(config, args)
+            }?;
         }
         return Ok(());
     }
@@ -366,132 +270,55 @@ pub fn batch_ntt_internal(
         } else {
             stride_between_output_arrays
         };
+        let config = CudaLaunchConfigBuilder::new()
+            .grid_dim(total_blocks_smem.into())
+            .block_dim(nthreads_smem.into())
+            .dynamic_smem_bytes(smem_bytes)
+            .stream(stream)
+            .build();
+        let mut args = KernelArguments::new(
+            inputs_ptr,
+            outputs_ptr,
+            stride_between_input_arrays,
+            stride_between_output_arrays,
+            start_stage,
+            0,
+            log_n,
+            inverse,
+            blocks_per_ntt_smem,
+            log_extension_degree,
+            coset_index,
+        );
         match kernel {
             KERN::N2B_FINAL_7_OR_8(stages) => {
                 stage += stages;
-                launch(
-                    total_blocks_smem,
-                    nthreads_smem,
-                    smem_bytes,
-                    stream,
-                    n2b_final_7_or_8_stages as *const c_void,
-                    inputs_ptr,
-                    outputs_ptr,
-                    stride_between_input_arrays,
-                    stride_between_output_arrays,
-                    start_stage,
-                    *stages,
-                    log_n,
-                    inverse,
-                    blocks_per_ntt_smem,
-                    log_extension_degree,
-                    coset_index,
-                )
+                args.stages_this_launch = *stages;
+                N2BFinal7Or8StagesKernelFunction::launch(config, args)
             }
             KERN::N2B_FINAL_9_TO_12(stages) => {
                 stage += stages;
-                launch(
-                    total_blocks_smem,
-                    nthreads_smem,
-                    smem_bytes,
-                    stream,
-                    n2b_final_9_to_12_stages as *const c_void,
-                    inputs_ptr,
-                    outputs_ptr,
-                    stride_between_input_arrays,
-                    stride_between_output_arrays,
-                    start_stage,
-                    *stages,
-                    log_n,
-                    inverse,
-                    blocks_per_ntt_smem,
-                    log_extension_degree,
-                    coset_index,
-                )
+                args.stages_this_launch = *stages;
+                N2BFinal9To12StagesKernelFunction::launch(config, args)
             }
             KERN::N2B_NONFINAL_7_OR_8(stages) => {
                 stage += stages;
-                launch(
-                    total_blocks_smem,
-                    nthreads_smem,
-                    smem_bytes,
-                    stream,
-                    n2b_nonfinal_7_or_8_stages as *const c_void,
-                    inputs_ptr,
-                    outputs_ptr,
-                    stride_between_input_arrays,
-                    stride_between_output_arrays,
-                    start_stage,
-                    *stages,
-                    log_n,
-                    inverse,
-                    blocks_per_ntt_smem,
-                    log_extension_degree,
-                    coset_index,
-                )
+                args.stages_this_launch = *stages;
+                N2BNonfinal7Or8StagesKernelFunction::launch(config, args)
             }
             KERN::B2N_INITIAL_7_OR_8(stages) => {
                 stage += stages;
-                launch(
-                    total_blocks_smem,
-                    nthreads_smem,
-                    smem_bytes,
-                    stream,
-                    b2n_initial_7_or_8_stages as *const c_void,
-                    inputs_ptr,
-                    outputs_ptr,
-                    stride_between_input_arrays,
-                    stride_between_output_arrays,
-                    start_stage,
-                    *stages,
-                    log_n,
-                    inverse,
-                    blocks_per_ntt_smem,
-                    log_extension_degree,
-                    coset_index,
-                )
+                args.stages_this_launch = *stages;
+                B2NInitial7Or8StagesKernelFunction::launch(config, args)
             }
             KERN::B2N_INITIAL_9_TO_12(stages) => {
                 stage += stages;
-                launch(
-                    total_blocks_smem,
-                    nthreads_smem,
-                    smem_bytes,
-                    stream,
-                    b2n_initial_9_to_12_stages as *const c_void,
-                    inputs_ptr,
-                    outputs_ptr,
-                    stride_between_input_arrays,
-                    stride_between_output_arrays,
-                    start_stage,
-                    *stages,
-                    log_n,
-                    inverse,
-                    blocks_per_ntt_smem,
-                    log_extension_degree,
-                    coset_index,
-                )
+                args.stages_this_launch = *stages;
+                B2NInitial9To12StagesKernelFunction::launch(config, args)
             }
             KERN::B2N_NONINITIAL_7_OR_8(stages) => {
                 stage += stages;
-                launch(
-                    total_blocks_smem,
-                    nthreads_smem,
-                    smem_bytes,
-                    stream,
-                    b2n_noninitial_7_or_8_stages as *const c_void,
-                    inputs_ptr,
-                    outputs_ptr,
-                    stride_between_input_arrays,
-                    stride_between_output_arrays,
-                    start_stage,
-                    *stages,
-                    log_n,
-                    inverse,
-                    blocks_per_ntt_smem,
-                    log_extension_degree,
-                    coset_index,
-                )
+                args.stages_this_launch = *stages;
+                B2NNoninitial7Or8StagesKernelFunction::launch(config, args)
             }
             KERN::SKIP => get_last_error().wrap(),
         }?;

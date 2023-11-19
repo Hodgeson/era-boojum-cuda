@@ -1,13 +1,9 @@
 use boojum::field::goldilocks::GoldilocksField;
 use boojum::implementations::poseidon_goldilocks_params::*;
 
-use cudart::execution::{
-    KernelFiveArgs, KernelFourArgs, KernelLaunch, KernelSevenArgs, KernelThreeArgs,
-};
 use cudart::result::CudaResult;
 use cudart::slice::DeviceSlice;
 use cudart::stream::CudaStream;
-use cudart_sys::dim3;
 
 use crate::device_structures::{
     BaseFieldDeviceType, DeviceMatrixChunkImpl, DeviceMatrixChunkMutImpl, MutPtrAndStride,
